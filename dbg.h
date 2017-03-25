@@ -1,43 +1,74 @@
 // LINUX DEBUGGER UTILS
 #ifndef DBG_H
 #define DBG_H
-#include <sys/ptrace.h>
-#include <sys/wait.h>
-#include <fcntl.h>
-#include <unistd.h>
+#include <sys/uio.h>
 
 const int WORD_SIZE = 8; // x86_64
 
-struct mem_file {
-  int fd;
-  int pid;
+int read_mem(pid_t pid, off_t start, char *buf, size_t n) {
+  struct iovec local[1];
+  struct iovec remote[1];
+
+  local[0].iov_base = buf;
+  local[0].iov_len = n;
+
+  remote[0].iov_base = (void *) start;
+  remote[0].iov_len = n;
+
+  return process_vm_readv(pid, local, 1, remote, 1, 0);
+}
+
+struct pmap {
+  unsigned long begin;
+  unsigned long end;
+  unsigned long size;
+  unsigned long inode;
+  char perm[5];
+  char dev[6];
+  char mapname[64];
 };
 
-struct mem_file mem_file_load(long pid) {
-  char buf[64];
-  sprintf(buf, "/proc/%d/mem", pid);
-  struct mem_file m;
-  m.pid = pid;
-  m.fd = open(buf, O_RDONLY);
-  ptrace(PTRACE_ATTACH, m.pid, NULL, NULL);
-  waitpid(m.pid, NULL, 0);
-  return m;
+struct pmap *read_mem_maps(pid_t pid, int *n) {
+  char map_path[64];
+  FILE *f;
+  *n = 16;
+
+  struct pmap *pmaps = (struct pmap *) malloc(sizeof(struct pmap) * (*n));
+
+  sprintf(map_path, "/proc/%ld/maps", (long)pid);
+  f = fopen(map_path, "r");
+
+  if(!f) return NULL;
+
+  char buf[128];
+  for(int i = 0; !feof(f); i++) {
+    struct pmap m;
+
+    if(fgets(buf, sizeof(buf), f) == 0) break;
+
+    m.mapname[0] = '\0';
+    int t;
+    sscanf(buf, "%lx-%lx %4s %lx %5s %ld %s",
+        &m.begin, &m.end, m.perm,
+        &t, m.dev, &m.inode, m.mapname);
+
+    m.size = m.end - m.begin;
+
+    if(i >= *n - 1) {
+      *n *= 2;
+      pmaps = (struct pmap *) realloc(pmaps, sizeof(struct pmap) * (*n));
+    }
+
+    pmaps[i] = m;
+  }
+  fclose(f);
+  return pmaps;
 }
 
-void mem_file_close(struct mem_file *m) {
-  ptrace(PTRACE_DETACH, m->pid, NULL, NULL);
-  close(m->fd);
-}
-
-void mem_file_read(struct mem_file *m, off_t oaddr, char *buf, size_t n) {
-    // TODO: try process_vm_readv
-    pread(m->fd, buf, n, oaddr);
-}
 
 // `n` must be divisible by word_size
-void dump_hex(char *buf, size_t n, long start) {
+void dump_hex(char *buf, size_t n) {
     for(int i = 0; i < n / WORD_SIZE; i++) {
-        printf("0x%08x ", start + (i * WORD_SIZE));
         for(int j = 0; j < WORD_SIZE; j++) {
             printf("%02hhX ", buf[(i * WORD_SIZE) + j]);
         }

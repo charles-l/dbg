@@ -28,6 +28,7 @@ struct pmap {
   char mapname[64];
 };
 
+// this is utter crap - fix it (eventually)
 struct pmap *read_mem_maps(pid_t pid, int *n) {
   char map_path[64];
   FILE *f;

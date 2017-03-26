@@ -8,12 +8,19 @@
 #include "imgui_impl_sdl.h"
 
 #include <errno.h>
+#define BUF_SIZE 1024
 
 const unsigned int WIN_W = 800;
 const unsigned int WIN_H = 600;
 const char *WIN_T = "dbg";
 TTF_Font *font;
 SDL_Color font_color = {255, 255, 255};
+
+typedef struct {
+  off_t rstart; // remote start address
+  char *buf;
+  size_t n;
+} mem_view;
 
 int main(int argc, char **argv) {
   { // init
@@ -31,7 +38,7 @@ int main(int argc, char **argv) {
       SDL_WINDOWPOS_UNDEFINED,
       WIN_W,
       WIN_H,
-      SDL_WINDOW_SHOWN);
+      SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
 
   SDL_GLContext glcontext = SDL_GL_CreateContext(window);
   ImGui_ImplSdl_Init(window);
@@ -40,10 +47,10 @@ int main(int argc, char **argv) {
   font = TTF_OpenFont("font/SourceCodePro.ttf", 12);
   if(!font) errx(1, "%s", TTF_GetError());
 
-  off_t start = 0x0;
-  char offset_buf[11] = {0};
-
+  off_t offset = 0x0;
+  char buf[BUF_SIZE];
   pid_t pid = 1133;
+
   int n;
   struct pmap *pmaps = read_mem_maps(pid, &n);
 
@@ -57,35 +64,32 @@ int main(int argc, char **argv) {
     }
     ImGui_ImplSdl_NewFrame(window);
 
-    ImGui::Begin("Memory map");
+    ImGui::Begin("memory map");
     for(int i = 0; i < n; i++) {
-      ImGui::Text("%p %lu %s %s",
-          (char *) pmaps[i].begin,
+      if(ImGui::Button(pmaps[i].mapname)) {
+        offset = pmaps[i].begin;
+      }
+
+      ImGui::Text("%p %lu %s",
+          (void *) pmaps[i].begin,
           pmaps[i].size,
-          pmaps[i].perm,
-          pmaps[i].mapname);
+          pmaps[i].perm);
     }
     ImGui::End();
 
-
-    ImGui::InputText("Offset", offset_buf, 11);
-
-    if(sscanf(offset_buf, "0x%x", &start) == -1) {
-      strcpy(offset_buf, "0x0");
-      start = 0;
-    }
-
-    ImGui::InputInt("pid", &pid);
-    ImGui::Text("%i\n", start);
-
-    char buf[80];
-
-    if (read_mem(pid, start, buf, 80) == -1) {
+    ImGui::Begin("memory dump");
+#ifdef x86 // 32 bit
+    ImGui::InputInt("offset", (int *) &offset, 1, 100, ImGuiInputTextFlags_CharsHexadecimal);
+#else // 64 bit
+    ImGui::InputInt("offset (upper)", (int *) &offset, 1, 100, ImGuiInputTextFlags_CharsHexadecimal);
+    ImGui::InputInt("offset (lower)", (int *) &offset - 4, 1, 100, ImGuiInputTextFlags_CharsHexadecimal);
+#endif
+    if (read_mem(pid, offset, buf, BUF_SIZE) == -1) {
       ImGui::Text("error: %s", strerror(errno));
     } else {
-      for(int i = 0; i < 80 / WORD_SIZE; i++) {
+      for(int i = 0; i < BUF_SIZE / WORD_SIZE; i++) {
         char s[64] = {0};
-        sprintf(s, "0x%08x", start + i * WORD_SIZE);
+        sprintf(s, "0x%p", offset + i * WORD_SIZE);
 
         for(int j = 0; j < WORD_SIZE; j++) {
           sprintf(s, "%s %02hhX", s, buf[i * WORD_SIZE + j]);
@@ -94,14 +98,15 @@ int main(int argc, char **argv) {
         ImGui::Text(s);
       }
     }
+    ImGui::End();
 
     {
       glViewport(0, 0, (int)ImGui::GetIO().DisplaySize.x, (int)ImGui::GetIO().DisplaySize.y);
       glClearColor(10, 10, 10, 255);
       glClear(GL_COLOR_BUFFER_BIT);
 
-      glPixelZoom(20, 20);
-      glDrawPixels(8, 10, GL_RGB, GL_UNSIGNED_BYTE, buf);
+      glPixelZoom(5, 5);
+      glDrawPixels(WORD_SIZE, BUF_SIZE / WORD_SIZE, GL_RGB, GL_UNSIGNED_BYTE, buf);
 
       ImGui::Render();
       SDL_GL_SwapWindow(window);

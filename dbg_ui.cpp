@@ -1,5 +1,4 @@
 #include <SDL2/SDL.h>
-#include <SDL2/SDL_ttf.h>
 #include <GL/glew.h>
 #include <err.h>
 #include <assert.h>
@@ -7,14 +6,13 @@
 #include "imgui/imgui.h"
 #include "imgui_impl_sdl.h"
 
+#include <capstone/capstone.h>
 #include <errno.h>
 #define BUF_SIZE 1024
 
 const unsigned int WIN_W = 800;
 const unsigned int WIN_H = 600;
 const char *WIN_T = "dbg";
-TTF_Font *font;
-SDL_Color font_color = {255, 255, 255};
 
 typedef struct {
   off_t rstart; // remote start address
@@ -25,7 +23,6 @@ typedef struct {
 int main(int argc, char **argv) {
   { // init
     SDL_Init(SDL_INIT_VIDEO);
-    TTF_Init();
     // maybe this works?
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 2);
@@ -43,9 +40,6 @@ int main(int argc, char **argv) {
   SDL_GLContext glcontext = SDL_GL_CreateContext(window);
   ImGui_ImplSdl_Init(window);
   SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-
-  font = TTF_OpenFont("font/SourceCodePro.ttf", 12);
-  if(!font) errx(1, "%s", TTF_GetError());
 
   off_t offset = 0x0;
   char buf[BUF_SIZE];
@@ -65,7 +59,7 @@ int main(int argc, char **argv) {
     ImGui_ImplSdl_NewFrame(window);
 
     ImGui::Begin("memory map");
-    for(int i = 0; i < n; i++) {
+    for(int i = 0; i < n && pmaps[i].begin != 0; i++) {
       if(ImGui::Button(pmaps[i].mapname)) {
         offset = pmaps[i].begin;
       }
@@ -97,6 +91,26 @@ int main(int argc, char **argv) {
 
         ImGui::Text(s);
       }
+    }
+    ImGui::End();
+
+    ImGui::Begin("disassembler");
+    {
+      // TODO: make this not suck
+      csh handle;
+      cs_insn *insn;
+      size_t n;
+
+      if(cs_open(CS_ARCH_X86, CS_MODE_64, &handle) == CS_ERR_OK) {
+        n = cs_disasm(handle, (uint8_t *) buf, BUF_SIZE, offset, 0, &insn);
+        if(n) {
+          for (int i = 0; i < n; i++) {
+            ImGui::Text("0x%" PRIx64 ":\t%s\t\t%s\n", insn[i].address, insn[i].mnemonic, insn[i].op_str);
+          }
+          cs_free(insn, n);
+        }
+      }
+      cs_close(&handle);
     }
     ImGui::End();
 

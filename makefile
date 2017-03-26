@@ -1,5 +1,5 @@
 OBJ = dbg_ui.o imgui_impl_sdl.o imgui/imgui.o imgui/imgui_draw.o
-LDFLAGS = -lSDL2 -lSDL2_ttf -lGL
+LDFLAGS = -lSDL2 -lSDL2_ttf -lGL -lcapstone
 CFLAGS =
 
 %.o: %.cpp

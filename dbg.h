@@ -28,7 +28,7 @@ struct pmap {
   char mapname[64];
 };
 
-// this is utter crap - fix it (eventually)
+// this is utter crap
 struct pmap *read_mem_maps(pid_t pid, int *n) {
   char map_path[64];
   FILE *f;
@@ -66,14 +66,13 @@ struct pmap *read_mem_maps(pid_t pid, int *n) {
   return pmaps;
 }
 
-
 // `n` must be divisible by word_size
 void dump_hex(char *buf, size_t n) {
     for(int i = 0; i < n / WORD_SIZE; i++) {
         for(int j = 0; j < WORD_SIZE; j++) {
-            printf("%02hhX ", buf[(i * WORD_SIZE) + j]);
+            fprintf(stderr, "%02hhX ", buf[(i * WORD_SIZE) + j]);
         }
-        putchar('\n');
+        fprintf(stderr, "\n");
     }
 }
 
